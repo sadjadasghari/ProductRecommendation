@@ -60,6 +60,16 @@ To allow users to highly customize recommended products based on textual prompts
 3. **Retail Catalog Style Alignment ([src/generation/train_lora.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/generation/train_lora.py))**:
    - We implemented a LoRA (Low-Rank Adaptation) fine-tuning script. This enables the base diffusion model to strictly learn the brand’s specific photography styles, lighting, and product aesthetics. Once trained, the `pytorch_lora_weights.safetensors` can be plugged back into the `RetailImageGenerator`.
 
+### 1. Item Tower (Cloud Precomputation)
+- **Vision Features**: Uses `MobileNetV3` (small) optimized for speed. It extracts the raw image pixels and global-average-pools them into a 576-dim vector.
+- **Text Features (Transformer)**: Upgraded from a legacy GRU to a bidirectional self-attentive **Transformer Encoder** (specifically a `sentence-transformers` distilled model, e.g., `all-MiniLM-L6-v2`). This backbone dynamically processes rich product descriptions, extracting highly contextualized text representations.
+- **Fusion**: Both representations are concatenated and passed through an MLP to map them structurally into the unified 128-dim space.
+
+### 2. User Tower (Mobile Edge Inference)
+- **Sequential Context**: Takes the 128-dim embeddings of the last N products the user interacted with.
+- **Self-Attention Mapping (SASRec)**: Replaced the unidirectional GRU with a fast **Custom Transformer Encoder Layer** incorporating Positional Encodings to extract latent user intent across complex time horizons.
+- **Prediction Space**: Outputs a localized 128-dim representation exactly mirroring the targeted next-item space.
+
 4. **GenAI Evaluation Suite ([src/evaluation/evaluate_generation.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/evaluation/evaluate_generation.py))**:
    - Because image generation quality is subjective, we implemented an automated evaluation suite using OpenAI's **CLIP (`openai/clip-vit-base-patch32`)**.
    - By calculating the `calculate_clip_score` (cosine similarity) between the user's customized text prompt and the final generated image, we mathematically measure how accurately the generative model adhered to the user's instructions (e.g., verifying the shoe is actually "neon yellow").

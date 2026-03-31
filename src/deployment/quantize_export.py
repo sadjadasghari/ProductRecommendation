@@ -32,7 +32,7 @@ def export_edge_model():
     # We quantize the heavy nn.Linear and nn.GRU layers
     quantized_model = torch.ao.quantization.quantize_dynamic(
         user_model, 
-        {nn.GRU, nn.Linear}, 
+        {nn.Linear}, 
         dtype=torch.qint8
     )
     

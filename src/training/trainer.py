@@ -6,22 +6,22 @@ from src.training.loss import InfoNCELoss
 from src.data.multimodal_dataset import MultimodalRetailDataset, collate_multimodal_batch
 
 class LitTwoTower(pl.LightningModule):
-    def __init__(self, vocab_size=30000, embed_dim=128, lr=1e-3, batch_size=64):
+    def __init__(self, embed_dim=128, lr=1e-4, batch_size=64):
         super().__init__()
         self.save_hyperparameters()
-        self.model = TwoTowerRecSys(vocab_size=vocab_size, embed_dim=embed_dim)
+        self.model = TwoTowerRecSys(embed_dim=embed_dim)
         self.loss_fn = InfoNCELoss(temperature=0.07)
         self.lr = lr
         self.batch_size = batch_size
 
-    def forward(self, history, img, txt, t_len):
-        return self.model(history, img, txt, t_len)
+    def forward(self, history, img, txt_ids, txt_mask):
+        return self.model(history, img, txt_ids, txt_mask)
 
     def training_step(self, batch, batch_idx):
-        history, target_img, target_txt, lengths = batch
+        history, target_img, target_txt_ids, target_txt_mask = batch
         
         # 1. Forward pass
-        user_emb, item_emb = self(history, target_img, target_txt, lengths)
+        user_emb, item_emb = self(history, target_img, target_txt_ids, target_txt_mask)
         
         # 2. Compute symmetric InfoNCE contrastive loss
         loss = self.loss_fn(user_emb, item_emb)

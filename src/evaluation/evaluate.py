@@ -52,7 +52,7 @@ def run_evaluation():
     
     # 1. Load Item Encoder (Using Random Init since we are running functional validation)
     print("Loading Item Tower (uninitialized weights for functional simulation)...")
-    item_tower = ItemEncoder(vocab_size=30000, text_embed_dim=128, fused_dim=128)
+    item_tower = ItemEncoder(fused_dim=128)
     item_tower.eval()
     
     # 2. Load FP32 User Encoder
@@ -67,7 +67,7 @@ def run_evaluation():
     user_model_int8 = UserEncoder(item_dim=128, hidden_dim=256, output_dim=128)
     user_model_int8 = torch.ao.quantization.quantize_dynamic(
         user_model_int8, 
-        {nn.GRU, nn.Linear}, 
+        {nn.Linear}, 
         dtype=torch.qint8
     )
     if os.path.exists("edge_user_model_int8.pt"):
@@ -96,10 +96,10 @@ def run_evaluation():
     print("Extracting Embeddings...")
     with torch.no_grad():
         for batch in test_loader:
-            history, target_img, target_txt, lengths = batch
+            history, target_img, target_txt_ids, target_txt_mask = batch
             
             # Extract item embedding
-            item_emb = item_tower(target_img, target_txt, lengths)
+            item_emb = item_tower(target_img, target_txt_ids, target_txt_mask)
             all_target_item_embs.append(item_emb)
             
             # Predict user embeddings (FP32)

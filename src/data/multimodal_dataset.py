@@ -1,49 +1,65 @@
 import torch
 from torch.utils.data import Dataset
 import numpy as np
+from transformers import AutoTokenizer
 
 class MultimodalRetailDataset(Dataset):
     """
     Simulated large-scale multimodal retail dataset.
     Returns:
     - User History (Sequence of Item Embeddings)
-    - Target Positive Item (Image tensor + Text tokens)
+    - Target Positive Item (Image tensor + Text features)
     """
-    def __init__(self, num_samples=10000, seq_len=10, vocab_size=30000, max_text_len=20, embed_dim=128):
+    def __init__(self, num_samples=10000, seq_len=10, max_text_len=32, embed_dim=128, model_name="sentence-transformers/all-MiniLM-L6-v2"):
         self.num_samples = num_samples
         self.seq_len = seq_len
-        self.vocab_size = vocab_size
         self.max_text_len = max_text_len
         self.embed_dim = embed_dim
+        
+        # We load a real tokenizer to accurately simulate inputs to the transformer text backbone
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        # Sample phrases to generate some dynamic data
+        self.sample_descriptions = [
+            "A comfortable cotton graphic t-shirt in bright red.",
+            "Mid-century modern leather sofa with wooden legs style.",
+            "Waterproof hiking boots perfect for outdoor trail walks.",
+            "Stainless steel smart watch with heart rate monitor.",
+            "Minimalist ceramic coffee mug for morning espresso."
+        ]
         
     def __len__(self):
         return self.num_samples
         
     def __getitem__(self, idx):
-        # Simulate user history: a sequence of previous item embeddings the user clicked
-        # Note: In a real pipeline, we'd lookup these embeddings dynamically or from a precomputed store.
+        # 1. User History (Simulate last N item embeddings watched by user)
         history_embeddings = torch.randn(self.seq_len, self.embed_dim)
         
-        # Simulate Target Positive Item (The next item they actually clicked)
-        # 1. Image (3 channels, 224x224 for MobileNetV3)
+        # 2. Target Positive Item (The next item they clicked)
         target_image = torch.randn(3, 224, 224)
         
-        # 2. Text Description Tokens
-        target_text_tokens = torch.randint(0, self.vocab_size, (self.max_text_len,))
-        text_length = torch.tensor(self.max_text_len, dtype=torch.long)
+        # 3. Text features
+        desc = self.sample_descriptions[idx % len(self.sample_descriptions)]
+        tokenized = self.tokenizer(
+            desc,
+            padding='max_length',
+            truncation=True,
+            max_length=self.max_text_len,
+            return_tensors="pt"
+        )
         
         return {
             "history_embs": history_embeddings,
             "target_img": target_image,
-            "target_txt": target_text_tokens,
-            "target_len": text_length
+            "target_txt_ids": tokenized['input_ids'].squeeze(0),
+            "target_txt_mask": tokenized['attention_mask'].squeeze(0)
         }
 
 # Collate function for DataLoader
 def collate_multimodal_batch(batch):
     histories = torch.stack([b["history_embs"] for b in batch])
     images = torch.stack([b["target_img"] for b in batch])
-    texts = torch.stack([b["target_txt"] for b in batch])
-    lengths = torch.stack([b["target_len"] for b in batch])
+    text_ids = torch.stack([b["target_txt_ids"] for b in batch])
+    text_masks = torch.stack([b["target_txt_mask"] for b in batch])
     
-    return histories, images, texts, lengths
+    return histories, images, text_ids, text_masks
