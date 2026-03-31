@@ -5,14 +5,14 @@ We have designed and fully implemented a production-ready **Multimodal Retail Pr
 
 ## Pipeline Architecture
 1. **Multimodal Item Encoder** ([src/models/two_tower.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/models/two_tower.py)):
-   - Combines a lightweight `MobileNetV3` vision backbone with a sequential `GRU` text backbone.
-   - Outputs a unified dense embedding representing the product.
-   - Run predominantly offline/cloud-side to precompute the retail catalog.
+   - **Vision Features**: Uses a **Vision Transformer (`ViT-B/16`)** optimized for extracting deep patch-level semantics from raw product pixels.
+   - **Text Features**: Uses a bidirectional self-attentive **Transformer Encoder** (`all-MiniLM-L6-v2`) processing rich product descriptions.
+   - Outputs a unified dense embedding representing the product. Run predominantly offline/cloud-side to precompute the retail catalog.
 2. **Sequential User Tower** ([src/models/two_tower.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/models/two_tower.py)):
-   - A fast sequential GRU that processes locally stored interaction histories (e.g., items the user recently clicked).
-   - Designed strictly for edge inference. Outputs a predictive vector of what the user wants next.
+   - **SASRec Self-Attention Mapping**: Replaces standard GRUs with a multi-layered Transformer block utilizing positional embeddings.
+   - **Feature Store Integration**: Real-time contextual parameters (time-of-day, geolocation, device) are streamed efficiently into the `UserEncoder` and concatenated into the user's intent vector for dynamic state accuracy.
 3. **Contrastive Training Loop** ([src/training/loss.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/training/loss.py), [src/training/trainer.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/training/trainer.py)):
-   - We implemented symmetric **InfoNCE Loss** (inspired by CLIP) utilizing PyTorch Lightning for distributed training, which maximizes the cosine similarity of true (User, Item) pairs while utilizing "in-batch negatives" for efficiency.
+   - We implemented a strict **CosFace Additive Margin InfoNCE Loss**, forcing the system to penalize visually similar but semantically distinct hard negatives (e.g., distinguishing a red poly shirt vs. a red cotton shirt).
 
 ## Edge Deployment & Quantization
 Running a multimodal recommendation engine purely on a mobile device is normally prohibited by memory and compute constraints. To solve this, we applied **Post-Training Dynamic Quantization (PTQ)** ([src/deployment/quantize_export.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/deployment/quantize_export.py)).
@@ -46,31 +46,20 @@ We implemented an evaluation suite ([src/evaluation/evaluate.py](file:///Users/s
 > [!NOTE]
 > **Insight:** The INT8 quantization preserves the model's exact ranking order for the evaluated samples, yielding identical Hit Rate and NDCG as the original FP32 model. This demonstrates that we successfully compressed the model footprint by 73.8% without sacrificing the underlying representation quality.
 
-## Generative AI Integration (Product Image Customization)
-To allow users to highly customize recommended products based on textual prompts, we designed an integrated RAG + Diffusion image generation pipeline.
+## Generative AI & Agentic Orchestration
+To allow users to highly customize recommended products based on textual prompts, we designed an integrated Agent + RAG + Diffusion image generation pipeline.
 
-1. **Diffusion Architecture ([src/generation/image_generator.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/generation/image_generator.py))**:
-   - **Cloud Mode**: Utilizes high-resolution Diffusion models (like SDXL or Stable Diffusion 1.5 with DPMSolver) in FP16 precision to generate photorealistic imagery conditioned on the product prompt.
-   - **Edge Mode**: Utilizes low-step distilled diffusion models (like SD-Turbo) on the CPU or Neural Engine, achieving edge generation in under 4 steps for maximum user privacy.
+1. **Multimodal Agent Orchestrator ([src/generation/agent_router.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/generation/agent_router.py))**:
+   - An LLM-driven router parsing unstructured generic user intent (e.g., "Will this couch match the rug in this photo?").
+   - Dynamically decides to route the action straight to the dense text-to-image pipeline, or traverse the FAISS Sub-Millisecond dense index.
 
-2. **Spatial Visualizations (Image Inpainting)**:
+2. **Diffusion Architecture ([src/generation/image_generator.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/generation/image_generator.py))**:
+   - **Cloud Mode**: Utilizes high-resolution Diffusion models in FP16 precision to generate photorealistic imagery conditioned on the product prompt.
+   - **Edge Mode**: Utilizes low-step distilled diffusion models (like SD-Turbo) on the CPU or Neural Engine, achieving edge generation in under 4 steps.
+
+3. **Spatial Visualizations (Image Inpainting)**:
    - Added `StableDiffusionInpaintPipeline` to process user-uploaded context photos (e.g., their living room) combined with an Alpha mask. 
-   - Uses the recommended product text (e.g., "mid-century modern leather couch") as the prompt to seamlessly synthesize the recommended product directly into their personal space with physically accurate lighting and shadows.
+   - Overlays and realistically renders the optimal 3D parameters of the matched product using the Two Tower retrieval into the spatial environment.
 
-3. **Retail Catalog Style Alignment ([src/generation/train_lora.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/generation/train_lora.py))**:
-   - We implemented a LoRA (Low-Rank Adaptation) fine-tuning script. This enables the base diffusion model to strictly learn the brand’s specific photography styles, lighting, and product aesthetics. Once trained, the `pytorch_lora_weights.safetensors` can be plugged back into the `RetailImageGenerator`.
-
-### 1. Item Tower (Cloud Precomputation)
-- **Vision Features**: Uses `MobileNetV3` (small) optimized for speed. It extracts the raw image pixels and global-average-pools them into a 576-dim vector.
-- **Text Features (Transformer)**: Upgraded from a legacy GRU to a bidirectional self-attentive **Transformer Encoder** (specifically a `sentence-transformers` distilled model, e.g., `all-MiniLM-L6-v2`). This backbone dynamically processes rich product descriptions, extracting highly contextualized text representations.
-- **Fusion**: Both representations are concatenated and passed through an MLP to map them structurally into the unified 128-dim space.
-
-### 2. User Tower (Mobile Edge Inference)
-- **Sequential Context**: Takes the 128-dim embeddings of the last N products the user interacted with.
-- **Self-Attention Mapping (SASRec)**: Replaced the unidirectional GRU with a fast **Custom Transformer Encoder Layer** incorporating Positional Encodings to extract latent user intent across complex time horizons.
-- **Prediction Space**: Outputs a localized 128-dim representation exactly mirroring the targeted next-item space.
-
-4. **GenAI Evaluation Suite ([src/evaluation/evaluate_generation.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/evaluation/evaluate_generation.py))**:
-   - Because image generation quality is subjective, we implemented an automated evaluation suite using OpenAI's **CLIP (`openai/clip-vit-base-patch32`)**.
-   - By calculating the `calculate_clip_score` (cosine similarity) between the user's customized text prompt and the final generated image, we mathematically measure how accurately the generative model adhered to the user's instructions (e.g., verifying the shoe is actually "neon yellow").
-   - This offline metric, combined with online A/B testing (e.g., Click-Through Rate), forms our comprehensive evaluation benchmark for the Generative component.
+4. **Retail Catalog Style Alignment (LoRA) ([src/generation/train_lora.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/generation/train_lora.py))**:
+   - Fine-tuned via Low-Rank Adaptation enabling the base diffusion models to learn specific Apple stylistic aesthetics (monotone backdrops, sleek lighting).
