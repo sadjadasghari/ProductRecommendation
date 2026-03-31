@@ -13,10 +13,12 @@ class ItemEncoder(nn.Module):
     def __init__(self, text_model_name="sentence-transformers/all-MiniLM-L6-v2", fused_dim=128):
         super().__init__()
         
-        # Vision backbone (lightweight)
-        vision_model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.DEFAULT)
-        self.vision_extractor = nn.Sequential(*list(vision_model.children())[:-1])
-        vision_out_dim = 576  # MobileNetV3 small features
+        # Vision backbone (Vision Transformer)
+        # Using vit_b_16 (weights: DEFAULT) replacing MobileNetV3
+        self.vision_extractor = models.vit_b_16(weights=models.ViT_B_16_Weights.DEFAULT)
+        # We strip the classification head so it outputs raw 768-D ViT embeddings
+        self.vision_extractor.heads = nn.Identity()
+        vision_out_dim = 768  # ViT-B/16 hidden size
         
         # Text backbone (Transformer)
         self.text_encoder = AutoModel.from_pretrained(text_model_name)
@@ -31,10 +33,9 @@ class ItemEncoder(nn.Module):
         )
         
     def forward(self, images, text_input_ids, text_attn_mask):
-        # 1. Vision Features
-        # images: [B, C, H, W]
+        # 1. Vision Features (ViT automatically outputs 768-D flat vector)
+        # images: [B, C, 224, 224]
         v_features = self.vision_extractor(images)
-        v_features = v_features.mean([2, 3])  # Global average pooling -> [B, 576]
         
         # 2. Text Features
         transformer_out = self.text_encoder(input_ids=text_input_ids, attention_mask=text_attn_mask)
@@ -101,7 +102,7 @@ class UserEncoder(nn.Module):
     Takes a sequence of historical item embeddings the user interacted with,
     processing them via Transformer Encoder blocks.
     """
-    def __init__(self, item_dim=128, hidden_dim=256, output_dim=128, max_seq_len=20):
+    def __init__(self, item_dim=128, hidden_dim=256, output_dim=128, max_seq_len=20, context_dim=16):
         super().__init__()
         
         self.pos_encoder = PositionalEncoding(item_dim, max_seq_len)
@@ -113,13 +114,14 @@ class UserEncoder(nn.Module):
         ])
         
         self.projection = nn.Sequential(
-            nn.Linear(item_dim, hidden_dim // 2),
+            nn.Linear(item_dim + context_dim, hidden_dim),
             nn.GELU(),
-            nn.Linear(hidden_dim // 2, output_dim)
+            nn.Linear(hidden_dim, output_dim)
         )
         
-    def forward(self, history_item_embeddings):
+    def forward(self, history_item_embeddings, context_features):
         # history_item_embeddings: [B, seq_len, item_dim]
+        # context_features: [B, context_dim]
         
         # 1. Add Positional Encodings
         x = self.pos_encoder(history_item_embeddings)
@@ -128,8 +130,9 @@ class UserEncoder(nn.Module):
         for layer in self.layers:
             x = layer(x)
             
-        # 3. Pull out the final interaction representing current intent
-        user_emb = self.projection(x[:, -1, :])
+        # 3. Inject Feature Store Real-Time Context & Project
+        user_intent = torch.cat([x[:, -1, :], context_features], dim=1)
+        user_emb = self.projection(user_intent)
         
         # 4. L2 Normalize
         user_emb = nn.functional.normalize(user_emb, p=2, dim=1)
@@ -145,7 +148,7 @@ class TwoTowerRecSys(nn.Module):
         self.item_tower = ItemEncoder(fused_dim=embed_dim)
         self.user_tower = UserEncoder(item_dim=embed_dim, output_dim=embed_dim)
         
-    def forward(self, user_history_embeddings, target_images, target_text_ids, target_text_mask):
-        user_emb = self.user_tower(user_history_embeddings)
+    def forward(self, user_history_embeddings, target_images, target_text_ids, target_text_mask, context_features):
+        user_emb = self.user_tower(user_history_embeddings, context_features)
         target_item_emb = self.item_tower(target_images, target_text_ids, target_text_mask)
         return user_emb, target_item_emb

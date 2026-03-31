@@ -14,14 +14,14 @@ class LitTwoTower(pl.LightningModule):
         self.lr = lr
         self.batch_size = batch_size
 
-    def forward(self, history, img, txt_ids, txt_mask):
-        return self.model(history, img, txt_ids, txt_mask)
+    def forward(self, history, img, txt_ids, txt_mask, context):
+        return self.model(history, img, txt_ids, txt_mask, context)
 
     def training_step(self, batch, batch_idx):
-        history, target_img, target_txt_ids, target_txt_mask = batch
+        history, target_img, target_txt_ids, target_txt_mask, context = batch
         
         # 1. Forward pass
-        user_emb, item_emb = self(history, target_img, target_txt_ids, target_txt_mask)
+        user_emb, item_emb = self(history, target_img, target_txt_ids, target_txt_mask, context)
         
         # 2. Compute symmetric InfoNCE contrastive loss
         loss = self.loss_fn(user_emb, item_emb)

@@ -3,22 +3,29 @@ import urllib.error
 import base64
 
 mermaid_code = """flowchart TB
+    %% Intelligent Orchestrator
+    subgraph Orchestrator ["Multimodal Agent Route"]
+        LLM("LLM Orchestrator (Intent Router)")
+    end
+
     %% Client Node
     subgraph Device ["Mobile Edge Device"]
         History["Local Click History"]
-        UserTower("User Tower GRU")
-        LocalDB[("Local Vector Index")]
+        FeatureStore[("Real-Time Feature Store (Context)")]
+        UserTower("User Tower (SASRec Transformer)")
+        LocalDB[("Local FAISS HNSW Index")]
         Recommendations["Ranked UI"]
         
         History --> |"128-dim vectors"| UserTower
+        FeatureStore -. "Location, Time, Device" .-> UserTower
         UserTower --> |"Generates Target Vector"| LocalDB
-        LocalDB --> |"Cosine Sim Top-K"| Recommendations
+        LocalDB --> |"O(log N) ANN Search"| Recommendations
     end
 
     %% Cloud Node
     subgraph Backend ["Cloud Infrastructure"]
         Catalog(["Raw Catalog: Images & Text"])
-        ItemTower("Item Tower MobileNetV3 + GRU")
+        ItemTower("Item Tower (ViT-B/16 + MiniLM Transf.)")
         CloudDB[("Global Vector DB")]
         
         Catalog --> ItemTower
@@ -31,7 +38,7 @@ mermaid_code = """flowchart TB
     subgraph TrainingPipeline ["Distributed Training Loop"]
         Dataset("Multimodal Dataset")
         ModelArchitecture{"Two-Tower Structure"}
-        Loss("Symmetric InfoNCE Loss")
+        Loss("Hard Negative Contrastive Loss (Margin)")
         
         Dataset --> ModelArchitecture
         ModelArchitecture --> Loss
@@ -49,24 +56,21 @@ mermaid_code = """flowchart TB
         UserRoom["User Photo (Living Room)"]
         RoomMask["Target Placement Mask"]
         
-        Diffusion("Stable Diffusion (Txt2Img)")
         Inpaint("Stable Diffusion (Inpainting)")
         
-        FinalImage["Customized Product Image"]
-        SpatialImage["Spatial Visualization (Couch in Room)"]
-        
-        RAG --> Diffusion
-        TextPrompt --> Diffusion
-        Diffusion --> FinalImage
+        FinalImage["Spatial Visualization (Couch in Room)"]
         
         TextPrompt --> Inpaint
         UserRoom --> Inpaint
         RoomMask --> Inpaint
-        Inpaint --> SpatialImage
+        RAG --> Inpaint
+        Inpaint --> FinalImage
     end
 
-    Recommendations -. "User taps Customize" .-> RAG
-    Recommendations -. "User taps View in Room" .-> UserRoom
+    %% Routing Flow
+    LLM -. "Intent: Search" .-> History
+    LLM -. "Intent: Visualize" .-> TextPrompt
+    Recommendations -. "User Requests GenAI" .-> LLM
 """
 
 encoded_str = base64.b64encode(mermaid_code.encode('utf-8')).decode('ascii')

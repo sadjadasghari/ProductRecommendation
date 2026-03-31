@@ -1,48 +1,50 @@
-# Multimodal Edge RecSys: Implementation Plan
+# Industrial Architecture Modernization Plan
 
-## Problem Statement
-The goal is to build a large-scale **multimodal product recommendation system** (text descriptions + product images) that generates highly personalized item recommendations, but carefully engineered for **on-device deployment**. This requires bridging the gap between heavy, high-accuracy representation learning (like CLIP/SigLIP) and extremely constrained mobile edge environments (iOS CoreML / Android TFLite / ExecuTorch).
+## Goal
+To elevate the Multimodal Edge RecSys pipeline to a state-of-the-art enterprise standard. We will implement Vision Transformers, HNSW Vector Databases, Hard Negative Contrastive Loss, a Feature Store integration pattern, and an Agentic LLM router. Finally, we will overhaul the presentation slides and architecture diagram to reflect these cutting-edge additions.
 
 ## User Review Required
 > [!IMPORTANT]
-> **Key Architecture Decisions:**
-> 1. **Model Backbone:** I propose using a lightweight **Two-Tower Architecture**, utilizing a distilled MobileCLIP or tiny-ViT combined with a fast text encoder for the Item Tower, and a sequential GRU/Transformer for the User Behavior Tower.
-> 2. **Edge Inference Strategy:** Rather than running the entire model on-device, we will run the **User Tower** dynamically on the edge to generate a "user embedding" based on real-time interactions, and retrieve nearest neighbors from a cached local vector database (e.g., SQLite-VSS or local FAISS) containing pre-computed **Item Embeddings**.
-> 3. **Quantization:** We will apply Post-Training Quantization (PTQ) to INT8 to shrink the model size to < 10MB for mobile deployment.
+> This plan touches almost every component of the system. 
 > 
-> *Please confirm if this Edge User-Tower + Cached Item-Tower approach aligns with your deployment constraints!*
+> 1.  **Vision Backbone:** I will swap `MobileNetV3` for a lightweight **Vision Transformer (`vit_b_16` or similar)**. ViTs are heavier; do you want to keep the Cloud `Item Tower` as heavy as needed while prioritizing Edge compression specifically for the `User Tower`?
+> 2.  **Retrieval Engine:** I will add `faiss-cpu` to the environment and rebuild the `evaluate.py` ranking logic to leverage highly optimized Approximate Nearest Neighbor (ANN) indexing rather than brute-force exact matrix multiplication.
+> 3.  **Are you okay with proceeding with all 5 of these major upgrades?**
 
 ## Proposed Changes
 
-We will work exclusively within the `~/Workspace/ProductRecommendation` directory.
+### Component 1: Data & Modeling (ViT & Context)
+#### [MODIFY] [multimodal_dataset.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/data/multimodal_dataset.py)
+*   Add mock "real-time context" features (e.g., time of day, location type) simulating a **Feature Store** ingestion.
+#### [MODIFY] [two_tower.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/models/two_tower.py)
+*   `ItemEncoder`: Replace `models.mobilenet_v3_small` with `models.vit_b_16` (Vision Transformer).
+*   `UserEncoder`: Add a secondary injection layer to concatenate the Feature Store user-context before passing through the final projection MLP.
 
-### 1. Data Pipeline & Representation Learning
-- Define the multimodal dataset loader (Images + Metadata).
-- Implement the Item Encoder (Image + Text Fusion).
-- Implement the User Encoder (Sequential sequence of interacted items).
-#### [NEW] `src/data/multimodal_dataset.py`
-#### [NEW] `src/models/two_tower.py`
+### Component 2: Advanced Contrastive Loss
+#### [MODIFY] [loss.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/training/loss.py)
+*   Upgrade standard InfoNCE to **Hard Negative InfoNCE**, optionally with additive margin concepts, by adjusting the temperature scaling and mining the hardest samples per batch. This forces the model to better distinguish visually similar but semantically distinct products.
 
-### 2. Large-Scale Training Pipeline
-- Contrastive learning loop (In-Batch Negatives).
-- PyTorch Lightning setup for multi-GPU scaling.
-#### [NEW] `src/training/trainer.py`
-#### [NEW] `src/training/loss.py` (InfoNCE loss)
+### Component 3: HNSW Retrieval Infrastructure
+#### [NEW] [requirements.txt](file:///Users/s0a0dhl/Workspace/ProductRecommendation/requirements.txt) (Update)
+*   Add `faiss-cpu` for ANN indexing.
+#### [MODIFY] [evaluate.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/evaluation/evaluate.py)
+*   Remove exact dense retrieval `torch.matmul()`.
+*   Build a **FAISS `IndexHNSWFlat`** with the 128-dim item embeddings.
+*   Query user embeddings against the FAISS index to compute HR@10, proving O(log N) scale retrieval.
 
-### 3. Edge Optimization & Export
-- Distillation and INT8 Quantization.
-- Export to ONNX, CoreML (macOS/iOS), and TFLite.
-#### [NEW] `src/deployment/quantize_export.py`
+### Component 4: Agentic AI Orchestrator
+#### [NEW] [agent_router.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/generation/agent_router.py)
+*   Mock an **LLM Orchestrator** class. It accepts raw user text like *"I need a red shirt"* or *"Does this couch fit my room (photo attached)?"* and automatically dynamically routes between the `TwoTowerRecSys` retrieval API and the `StableDiffusionInpaintPipeline`. 
 
-### 4. On-Device Retrieval Simulation
-- Simulating the device-side logic: pushing pre-computed item embeddings to a local vector store, and running the exported User Model live.
-#### [NEW] `src/deployment/edge_inference_sim.py`
+### Component 5: Presentation & Documentation
+#### [MODIFY] [architecture_diagram.md](file:///Users/s0a0dhl/.gemini/antigravity/brain/d5312596-427d-43b4-ba15-39ccf6afa5e1/architecture_diagram.md)
+*   Redraw the Mermaid chart completely. Add Feature Store node, FAISS Node, ViT icon, and the LLM Orchestrator router.
+#### [MODIFY] [presentation_slides.md](file:///Users/s0a0dhl/.gemini/antigravity/brain/d5312596-427d-43b4-ba15-39ccf6afa5e1/presentation_slides.md)
+*   Update slide content explicitly referencing ViT, HNSW, Feature Stores, Hard Negative Loss, and LLM Agents for the Apple presentation.
 
 ## Verification Plan
 
 ### Automated Tests
-- Unit tests verifying output tensor shapes of the multimodal fusion block.
-- Verification that the ONNX/CoreML exported models produce the same embeddings (within a tolerance epsilon) as the native PyTorch models.
-
-### Manual Verification
-- We will run `edge_inference_sim.py` to timing the latency of generating a user embedding and executing a local vector search. The strict goal is `< 50ms` latency for the end-to-end on-device recommendation pass.
+1. `python -m src.training.trainer` to ensure ViT and Feature Store Context properly flow through the modified Custom Transformer and Hard Negative Loss without shape mismatch.
+2. `pip install faiss-cpu` and `python -m src.evaluation.evaluate` to ensure FAISS HNSW graph builds correctly and searches the top-10 items locally.
+3. Rerun `generate_presentation.py` to compile the final interview artifact `.pptx`.

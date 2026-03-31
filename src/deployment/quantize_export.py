@@ -45,17 +45,18 @@ def export_edge_model():
     # 3. Export to ONNX (for CoreML/XNNPACK cross-platform wrapping)
     print("🔄 Exporting to ONNX format...")
     # Dummy input sequence: Batch=1, SeqLen=15 (recent items), Dim=128
-    dummy_input = torch.randn(1, 15, 128)
+    dummy_input_seq = torch.randn(1, 15, 128)
+    dummy_input_ctx = torch.randn(1, 16)
     
     # Exporting the FP32 model to ONNX (Quantization logic can be handled natively by ORT on device)
     torch.onnx.export(
         user_model, 
-        dummy_input, 
+        (dummy_input_seq, dummy_input_ctx), 
         "edge_user_model.onnx", 
         export_params=True,
         opset_version=14,
         do_constant_folding=True,
-        input_names=['user_history_seq'],
+        input_names=['user_history_seq', 'context_features'],
         output_names=['user_embedding']
     )
     

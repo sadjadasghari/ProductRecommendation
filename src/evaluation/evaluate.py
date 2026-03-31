@@ -6,41 +6,41 @@ from src.data.multimodal_dataset import MultimodalRetailDataset, collate_multimo
 import time
 import math
 import os
+import faiss
 
 # Fix for Apple Silicon (M-series) Mac quantization engines
 torch.backends.quantized.engine = 'qnnpack'
 
 def calculate_metrics(user_embs, item_embs, k=10):
     """
-    Computes Hit Rate at K (HR@K) and NDCG@K.
-    user_embs: [N, D]
-    item_embs: [N, D]
-    The ground truth item for user i is item i.
+    Computes Hit Rate at K (HR@K) and NDCG@K using highly optimized FAISS HNSW indexing.
+    Demonstrates O(log N) approximate nearest neighbor local inference.
     """
-    N = user_embs.size(0)
+    N, D = item_embs.shape
     
-    # Compute cosine similarity matrix: [N, N]
-    # Assuming embeddings are already L2 normalized
-    sim_matrix = torch.matmul(user_embs, item_embs.T)
+    # Vectors must be strictly contiguous numpy float32 arrays
+    user_embs_np = user_embs.detach().cpu().numpy().astype('float32')
+    item_embs_np = item_embs.detach().cpu().numpy().astype('float32')
+    
+    # Build HNSW FAISS Index (Using Inner Product, since L2-normalized vectors IP == Cosine Sim)
+    index = faiss.IndexHNSWFlat(D, 32, faiss.METRIC_INNER_PRODUCT)
+    # Train is implicitly handled for Flat indexing
+    index.add(item_embs_np)
+    
+    # Search for top-K approximate nearest neighbors
+    D_vals, I_vals = index.search(user_embs_np, k)
     
     hits = 0
     ndcg = 0.0
     
     for i in range(N):
-        # Get similarities for user i
-        user_sims = sim_matrix[i]
+        ranked_indices = I_vals[i]
         
-        # Sort indices descending
-        ranked_indices = torch.argsort(user_sims, descending=True)
-        
-        # Ground truth index is i
-        # Find the rank of the ground truth item (0-indexed)
-        rank = (ranked_indices == i).nonzero(as_tuple=True)[0].item()
-        
-        # If it's within top K
-        if rank < k:
+        # Ground truth index structurally aligned to i
+        if i in ranked_indices:
             hits += 1
-            ndcg += 1.0 / math.log2(rank + 2) # rank is 0-indexed, so rank+2 for log2(rank+1 where rank is 1-indexed)
+            rank = (ranked_indices == i).nonzero()[0][0]
+            ndcg += 1.0 / math.log2(rank + 2)
             
     hr_at_k = hits / N
     ndcg_at_k = ndcg / N
@@ -96,7 +96,7 @@ def run_evaluation():
     print("Extracting Embeddings...")
     with torch.no_grad():
         for batch in test_loader:
-            history, target_img, target_txt_ids, target_txt_mask = batch
+            history, target_img, target_txt_ids, target_txt_mask, context = batch
             
             # Extract item embedding
             item_emb = item_tower(target_img, target_txt_ids, target_txt_mask)
@@ -104,13 +104,13 @@ def run_evaluation():
             
             # Predict user embeddings (FP32)
             start_t = time.time()
-            user_emb_fp32 = user_model_fp32(history)
+            user_emb_fp32 = user_model_fp32(history, context)
             fp32_latency += (time.time() - start_t)
             all_user_embs_fp32.append(user_emb_fp32)
             
             # Predict user embeddings (INT8)
             start_t = time.time()
-            user_emb_int8 = user_model_int8(history)
+            user_emb_int8 = user_model_int8(history, context)
             int8_latency += (time.time() - start_t)
             all_user_embs_int8.append(user_emb_int8)
             

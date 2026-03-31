@@ -48,11 +48,16 @@ class MultimodalRetailDataset(Dataset):
             return_tensors="pt"
         )
         
+        
+        # 4. Feature Store Real-time Context (Appends location, time, device metadata)
+        context_features = torch.randn(16)
+        
         return {
             "history_embs": history_embeddings,
             "target_img": target_image,
             "target_txt_ids": tokenized['input_ids'].squeeze(0),
-            "target_txt_mask": tokenized['attention_mask'].squeeze(0)
+            "target_txt_mask": tokenized['attention_mask'].squeeze(0),
+            "context_features": context_features
         }
 
 # Collate function for DataLoader
@@ -61,5 +66,6 @@ def collate_multimodal_batch(batch):
     images = torch.stack([b["target_img"] for b in batch])
     text_ids = torch.stack([b["target_txt_ids"] for b in batch])
     text_masks = torch.stack([b["target_txt_mask"] for b in batch])
+    contexts = torch.stack([b["context_features"] for b in batch])
     
-    return histories, images, text_ids, text_masks
+    return histories, images, text_ids, text_masks, contexts

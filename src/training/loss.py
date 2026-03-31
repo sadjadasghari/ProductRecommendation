@@ -6,13 +6,13 @@ import torch.nn.functional as F
 
 class InfoNCELoss(nn.Module):
     """
-    Symmetric Contrastive Loss (InfoNCE) used in CLIP and Two-Tower recommenders.
-    It maximizes the cosine similarity between the true (user, item) pair
-    and minimizes the similarity for all other (user, item) pairs in the batch
-    (In-Batch Negatives) by treating them as negatives.
+    Symmetric Contrastive Loss with Hard Negative Mining (Additive Margin).
+    By subtracting a margin from the true positive similarities, we force the model 
+    to separate positive pairs from the hardest in-batch negative pairs more aggressively.
     """
-    def __init__(self, temperature=0.07):
+    def __init__(self, temperature=0.07, margin=0.15):
         super().__init__()
+        self.margin = margin
         # Learnable temperature parameter (initialized to 0.07 similar to CLIP)
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / temperature))
         
@@ -22,14 +22,19 @@ class InfoNCELoss(nn.Module):
         item_embeddings: [B, D]
         Both inputs must be L2-normalized prior to this.
         """
-        # Cosine similarity is just a dot product when vectors are L2-normalized
-        logits = torch.matmul(user_embeddings, item_embeddings.T)
+        # Cosine similarity matrix (since vectors are L2-normalized)
+        cosine_sim = torch.matmul(user_embeddings, item_embeddings.T)
+        
+        batch_size = user_embeddings.shape[0]
+        labels = torch.arange(batch_size, device=user_embeddings.device)
+        
+        # Additive Margin for Hard Negative Separation (CosFace mechanics)
+        # Subtract the margin directly from the true positive logits
+        cosine_sim[labels, labels] -= self.margin
         
         # Scale the logits by the learned temperature
         logit_scale = self.logit_scale.exp()
-        logits = logits * logit_scale
-        
-        # Ground truth: the diagonal represents positive pairs (user[i] <-> item[i])
+        logits = cosine_sim * logit_scale
         batch_size = user_embeddings.shape[0]
         labels = torch.arange(batch_size, device=user_embeddings.device)
         

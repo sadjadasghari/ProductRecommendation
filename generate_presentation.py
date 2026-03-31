@@ -67,8 +67,8 @@ def generate_presentation():
             "title": "2. Multimodal Foundation Models",
             "content": [
                 "Catalog Embedding Cloud: Pre-processing the product index purely offline.",
-                "Vision Backbone: MobileNetV3 (or proprietary vision models) for feature extraction.",
-                "Text Backbone: Fused language encoders for rich product descriptions.",
+                "Vision Backbone: ViT-B/16 (Vision Transformer) for semantic patch-level feature extraction.",
+                "Text Backbone: all-MiniLM Transformer replacing RNNs for deeply contextualized text alignment.",
                 "Result: A unified 128-dimensional multimodal item embedding representing complex semantics."
             ]
         },
@@ -79,35 +79,36 @@ def generate_presentation():
         {
             "title": "4. Efficient On-Device ML Architecture",
             "content": [
-                "RecSys Edge Tower: A fast sequential GRU architecture processing local interaction history.",
-                "Contrastive Training (InfoNCE): Trained symmetrically for strong semantic alignment between intent and catalog.",
-                "Post-Training Quantization (PTQ): Reduced memory footprint by ~74% (from FP32 to dynamic INT8) with zero degradation in NDCG.",
-                "Inference: Executing natively via ANE/CPU with strict latency constraints (< 2ms)."
+                "RecSys Edge Tower: A fast SASRec (Self-Attentive) sequence Transformer processing local interaction history.",
+                "Hard Negative Contrastive Loss: Trained symmetrically using Additive Margin (CosFace) mechanics.",
+                "Feature Store Integration: Injecting real-time context (time-of-day, location) efficiently onto the edge.",
+                "Retrieval Engine: Employing FAISS HNSW for sub-millisecond Approximate Nearest Neighbor resolution natively in RAM.",
+                "Quantization: Compressing core weights to INT8 to radically minimize runtime footprint."
             ]
         },
         {
-            "title": "4. Personalized Generative AI (RAG + Diffusion)",
+            "title": "5. Agentic Generative AI (RAG + Diffusion)",
             "content": [
-                "User Empowerment: Seamless transition from Recommendation to Creation.",
-                "Diffusion Integration: Using IP-Adapter and distilled models (e.g., SD-Turbo) to generate customized products.",
-                "Edge Generation: Optimizing diffusion for local ANE execution (< 4 steps) to preserve privacy and reduce server costs.",
-                "LoRA Fine-Tuning: Applying Low-Rank Adaptation to strictly adhere to brand guidelines and style aesthetics."
+                "Intelligent Orchestration: Multimodal LLM dynamically routes ambiguous user queries.",
+                "Spatial Inpainting: Users upload photos of their own space (e.g., Living Room) for contextualized placement.",
+                "Closed-Loop Feedback: User validations of Spatial images implicitly construct difficult hard negatives.",
+                "LoRA Fine-Tuning: Applying Low-Rank Adaptation to strictly adhere to brand guidelines and aesthetics."
             ]
         },
         {
-            "title": "5. End-to-End Evaluation Framework",
+            "title": "6. End-to-End Evaluation Framework",
             "content": [
-                "Recommendation Quality: Driving engagement via Hit Rate (HR@10) and NDCG.",
+                "Recommendation Quality: Driving engagement via Hit Rate (HR@10) and NDCG via dense indexing.",
                 "Generative AI Metrics: Automated CLIP Score evaluation for text-to-image alignment and prompt adherence.",
                 "Continuous Improvement: Setting up infrastructure for RLHF and online A/B testing (CTR tracking)."
             ]
         },
         {
-            "title": "6. Team Leadership & Roadmap",
+            "title": "7. Team Leadership & Roadmap",
             "content": [
                 "Cross-Functional Execution: Bridging researchers, mobile developers, and product teams.",
                 "Infrastructure: Standardizing on scalable tools (PyTorch Lightning, Ray Serve) vs Edge deployments (CoreML).",
-                "Next Steps: Exploring LLM integration for conversational product search and expanding Multimodal Foundation capabilities."
+                "Next Steps: Expanding pure LLM integration for conversational product search and Multimodal Foundation capabilities."
             ]
         }
     ]
