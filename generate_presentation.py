@@ -23,6 +23,22 @@ def create_slide(prs, title, content):
         p.text = bullet
         p.font.size = Pt(24)
 
+def create_image_slide(prs, title, image_path):
+    slide_layout = prs.slide_layouts[5] # Title only
+    slide = prs.slides.add_slide(slide_layout)
+    title_shape = slide.shapes.title
+    title_shape.text = title
+    
+    # insert image centered
+    left = Inches(1)
+    top = Inches(1.5)
+    width = Inches(8)
+    
+    try:
+        slide.shapes.add_picture(image_path, left, top, width)
+    except Exception as e:
+        print(f"Could not load image {image_path}: {e}")
+
 def generate_presentation():
     # Fix dict attribute error sometimes seen in older pptx versions with python 3.10+
     prs = Presentation()
@@ -57,7 +73,11 @@ def generate_presentation():
             ]
         },
         {
-            "title": "3. Efficient On-Device ML Architecture",
+            "title": "3. System Architecture Design",
+            "image": "architecture.png"
+        },
+        {
+            "title": "4. Efficient On-Device ML Architecture",
             "content": [
                 "RecSys Edge Tower: A fast sequential GRU architecture processing local interaction history.",
                 "Contrastive Training (InfoNCE): Trained symmetrically for strong semantic alignment between intent and catalog.",
@@ -93,7 +113,10 @@ def generate_presentation():
     ]
     
     for slide_data in slides_data:
-        create_slide(prs, slide_data["title"], slide_data["content"])
+        if "image" in slide_data:
+            create_image_slide(prs, slide_data["title"], slide_data["image"])
+        else:
+            create_slide(prs, slide_data["title"], slide_data["content"])
         
     prs.save('apple_siml_interview_presentation.pptx')
     print("✅ Successfully generated 'apple_siml_interview_presentation.pptx'")

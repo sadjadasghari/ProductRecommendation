@@ -1,92 +1,129 @@
 import torch
-from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
-# Uncomment for IP-Adapter usage if you're conditioning heavily on the product image
-# from diffusers import AutoPipelineForText2Image 
+from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler, AutoPipelineForInpainting
 import time
-from PIL import Image
+from PIL import Image, ImageDraw
 
 class RetailImageGenerator:
     """
     RAG-driven Image Generation for Retail Products.
     Allows taking a recommended product (or its embeddings) and a user prompt
-    to generate customized product imagery.
+    to generate customized product imagery, or inpainting it into a user's space.
     """
     def __init__(self, mode="cloud"):
-        """
-        mode: 
-          - 'cloud': Uses a larger model like SD-v1.5 or SDXL in FP16 precision
-          - 'edge': Uses CoreML or Quantized ONNX for mobile device inference
-        """
         self.mode = mode
-        print(f"🚀 Initializing Image Generator in [{self.mode.upper()}] mode...")
+        print(f"🚀 Initializing Generative AI Suite in [{self.mode.upper()}] mode...")
+        self.device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
         
         if self.mode == "cloud":
-            # In a real cloud backend, you'd load SDXL or a fast variant like SD-Turbo
             model_id = "runwayml/stable-diffusion-v1-5"
+            print(f"Loading Text-to-Image Pipeline ({model_id})...")
             self.pipe = StableDiffusionPipeline.from_pretrained(
                 model_id, 
-                torch_dtype=torch.float16, 
+                torch_dtype=torch.float16 if self.device != "cpu" else torch.float32, 
                 requires_safety_checker=False,
                 safety_checker=None
             )
-            # Use faster solver
             self.pipe.scheduler = DPMSolverMultistepScheduler.from_config(self.pipe.scheduler.config)
-            
-            # If a LoRA is available, load it here
-            # self.pipe.load_lora_weights("path/to/retail_lora", weight_name="pytorch_lora_weights.safetensors")
-            
-            # Moves to CUDA if available, else CPU/MPS
-            self.device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
             self.pipe = self.pipe.to(self.device)
-            self.pipe.enable_attention_slicing() # Save VRAM
+            self.pipe.enable_attention_slicing() 
             
+            # Load Inpainting Pipeline (We use AutoPipelineForInpainting to handle inpainting tasks)
+            # For optimal results, we use the specific inpainting checkpoint of SD 1.5
+            inpaint_model_id = "runwayml/stable-diffusion-inpainting"
+            print(f"Loading Inpainting Pipeline for Spatial Visualizations ({inpaint_model_id})...")
+            self.inpaint_pipe = AutoPipelineForInpainting.from_pretrained(
+                inpaint_model_id,
+                torch_dtype=torch.float16 if self.device != "cpu" else torch.float32,
+                requires_safety_checker=False,
+                safety_checker=None
+            )
+            self.inpaint_pipe.scheduler = DPMSolverMultistepScheduler.from_config(self.inpaint_pipe.scheduler.config)
+            self.inpaint_pipe = self.inpaint_pipe.to(self.device)
+            self.inpaint_pipe.enable_attention_slicing()
+
         elif self.mode == "edge":
-            # For edge, you would typically use ANE (Apple Neural Engine) via coremltools
-            # or an ONNX/TFLite optimized model for Android/iOS.
-            # Here we simulate an ultra-fast Edge model setup like SD-Turbo or a distilled model:
             print("⚙️ Preparing Edge-Optimized Pipeline (Simulated)")
-            model_id = "stabilityai/sd-turbo"  # Extremely fast, 1-4 step generation
+            model_id = "stabilityai/sd-turbo"  
             self.pipe = StableDiffusionPipeline.from_pretrained(
                 model_id, 
                 torch_dtype=torch.float32, 
                 requires_safety_checker=False,
                 safety_checker=None
             )
-            self.device = "cpu"
             self.pipe = self.pipe.to(self.device)
-            # CoreML/ONNX exports would happen here natively in a mobile app
+            
+            # Edge inpainting utilizes the same turbo backbone for extreme speed
+            self.inpaint_pipe = AutoPipelineForInpainting.from_pipe(self.pipe)
+            self.inpaint_pipe = self.inpaint_pipe.to(self.device)
             
     def generate_customized_product(self, base_product_name, user_custom_prompt):
         """
         Generates an image of the recommended product modified by the user's prompt.
         """
-        # Construct the final prompt natively using the Recommended Product's attributes
-        # and the user's desired modifications.
-        # E.g. base_product_name = "Nike Air Max sneakers"
-        #      user_custom_prompt = "Make it bright blue with neon green laces"
         final_prompt = f"Professional studio photography of {base_product_name}. {user_custom_prompt}, 8k resolution, photorealistic, highly detailed, clean white background"
         negative_prompt = "low resolution, ugly, blurry, text, watermark, bad anatomy"
         
-        print(f"🎨 Generating image for prompt: '{final_prompt}'")
-        
+        print(f"🎨 Generating customized product: '{final_prompt}'")
         start_time = time.time()
-        
-        # Generation steps vary based on edge vs cloud
-        num_inference_steps = 20 if self.mode == "cloud" else 4 # Turbo needs fewer steps
+        num_inference_steps = 20 if self.mode == "cloud" else 4 
         
         with torch.no_grad():
             image = self.pipe(
                 prompt=final_prompt,
                 negative_prompt=negative_prompt,
                 num_inference_steps=num_inference_steps,
-                guidance_scale=7.5 if self.mode == "cloud" else 1.5, # Turbo uses low guidance
+                guidance_scale=7.5 if self.mode == "cloud" else 1.5,
                 num_images_per_prompt=1
             ).images[0]
             
-        latency = time.time() - start_time
-        print(f"✅ Image generated in {latency:.2f} seconds!")
-        
+        print(f"✅ Generated in {time.time() - start_time:.2f} seconds!")
         return image
+
+    def generate_inpaint_suggestion(self, base_image: Image.Image, mask_image: Image.Image, product_prompt: str):
+        """
+        Inpaints a suggested product into a user's contextual space 
+        (e.g., placing a couch into an empty living room).
+        """
+        # Ensure images are properly sized and in RGB format for the diffusers pipeline
+        base_image = base_image.convert("RGB").resize((512, 512))
+        mask_image = mask_image.convert("RGB").resize((512, 512))
+        
+        final_prompt = f"A high quality photorealistic {product_prompt}, perfect lighting, seamlessly integrated into the room"
+        negative_prompt = "low resolution, ugly, blurry, text, floating, badly cropped, bad anatomy"
+        
+        print(f"🛋️  Inpainting spatial visualization for: '{product_prompt}'")
+        start_time = time.time()
+        num_inference_steps = 25 if self.mode == "cloud" else 4
+        
+        with torch.no_grad():
+            image = self.inpaint_pipe(
+                prompt=final_prompt,
+                negative_prompt=negative_prompt,
+                image=base_image,
+                mask_image=mask_image,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=7.5 if self.mode == "cloud" else 1.5,
+            ).images[0]
+            
+        print(f"✅ Spatial Inpainting completed in {time.time() - start_time:.2f} seconds!")
+        return image
+
+
+def create_mock_room_and_mask():
+    """Helper function to generate a mock empty room and a center mask for testing."""
+    room = Image.new("RGB", (512, 512), color="lightgray")
+    draw = ImageDraw.Draw(room)
+    # Draw some "walls" and "floor" to simulate a room
+    draw.rectangle([0, 300, 512, 512], fill="burlywood") # Floor
+    
+    # Mask is white where we WANT to generate (e.g. where the couch goes)
+    mask = Image.new("RGB", (512, 512), color="black")
+    mask_draw = ImageDraw.Draw(mask)
+    # Draw a rectangle in the center where the couch should be
+    mask_draw.rectangle([100, 200, 412, 400], fill="white")
+    
+    return room, mask
+
 
 if __name__ == "__main__":
     import argparse
@@ -94,20 +131,28 @@ if __name__ == "__main__":
     parser.add_argument("--mode", type=str, default="cloud", choices=["cloud", "edge"])
     args = parser.parse_args()
     
-    # 1. Initialize our Generator
     generator = RetailImageGenerator(mode=args.mode)
     
-    # 2. Simulate User Interaction
-    # The RecSys pipeline recommended a "Canvas Tote Bag"
-    base_product = "A high quality canvas tote bag"
-    # The user taps "Customize" and types: "Make it a dark floral pattern"
-    user_prompt = "Dark moody floral pattern, embroidered details"
-    
-    # 3. Generate Image
+    # --- DEMO 1: Standard Product Customization ---
+    print("\n--- DEMO 1: Prompt Customization ---")
     try:
-        generated_img = generator.generate_customized_product(base_product, user_prompt)
-        generated_img.save(f"customized_product_{args.mode}.png")
-        print(f"💾 Saved customized product to customized_product_{args.mode}.png")
+        base_product = "A high quality canvas tote bag"
+        user_prompt = "Dark moody floral pattern, embroidered details"
+        img1 = generator.generate_customized_product(base_product, user_prompt)
+        img1.save(f"customized_{args.mode}.png")
+        print(f"💾 Saved product to customized_{args.mode}.png")
     except Exception as e:
-        print(f"❌ Failed to generate image: {e}")
-        print("Note: If running into memory issues or missing network access for Huggingface, ensure diffusers is installed.")
+        print(f"❌ Customization failed: {e}")
+
+    # --- DEMO 2: Spatial Inpainting ---
+    print("\n--- DEMO 2: Spatial Inpainting (Room Visualization) ---")
+    try:
+        user_room, placement_mask = create_mock_room_and_mask()
+        recommended_couch = "modern mid-century brown leather couch with wooden legs"
+        
+        img2 = generator.generate_inpaint_suggestion(user_room, placement_mask, recommended_couch)
+        img2.save(f"inpainted_room_{args.mode}.png")
+        print(f"💾 Saved spatial visualization to inpainted_room_{args.mode}.png")
+    except Exception as e:
+        print(f"❌ Inpainting failed: {e}")
+        print("Note: If running into memory issues, run on a system with 16GB+ RAM or a dedicated GPU.")

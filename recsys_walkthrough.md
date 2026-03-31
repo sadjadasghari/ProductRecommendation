@@ -53,10 +53,14 @@ To allow users to highly customize recommended products based on textual prompts
    - **Cloud Mode**: Utilizes high-resolution Diffusion models (like SDXL or Stable Diffusion 1.5 with DPMSolver) in FP16 precision to generate photorealistic imagery conditioned on the product prompt.
    - **Edge Mode**: Utilizes low-step distilled diffusion models (like SD-Turbo) on the CPU or Neural Engine, achieving edge generation in under 4 steps for maximum user privacy.
 
-2. **Retail Catalog Style Alignment ([src/generation/train_lora.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/generation/train_lora.py))**:
+2. **Spatial Visualizations (Image Inpainting)**:
+   - Added `StableDiffusionInpaintPipeline` to process user-uploaded context photos (e.g., their living room) combined with an Alpha mask. 
+   - Uses the recommended product text (e.g., "mid-century modern leather couch") as the prompt to seamlessly synthesize the recommended product directly into their personal space with physically accurate lighting and shadows.
+
+3. **Retail Catalog Style Alignment ([src/generation/train_lora.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/generation/train_lora.py))**:
    - We implemented a LoRA (Low-Rank Adaptation) fine-tuning script. This enables the base diffusion model to strictly learn the brand’s specific photography styles, lighting, and product aesthetics. Once trained, the `pytorch_lora_weights.safetensors` can be plugged back into the `RetailImageGenerator`.
 
-3. **GenAI Evaluation Suite ([src/evaluation/evaluate_generation.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/evaluation/evaluate_generation.py))**:
+4. **GenAI Evaluation Suite ([src/evaluation/evaluate_generation.py](file:///Users/s0a0dhl/Workspace/ProductRecommendation/src/evaluation/evaluate_generation.py))**:
    - Because image generation quality is subjective, we implemented an automated evaluation suite using OpenAI's **CLIP (`openai/clip-vit-base-patch32`)**.
    - By calculating the `calculate_clip_score` (cosine similarity) between the user's customized text prompt and the final generated image, we mathematically measure how accurately the generative model adhered to the user's instructions (e.g., verifying the shoe is actually "neon yellow").
    - This offline metric, combined with online A/B testing (e.g., Click-Through Rate), forms our comprehensive evaluation benchmark for the Generative component.
